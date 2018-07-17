@@ -50,7 +50,7 @@
 #define ALGORITHM_DATA_RATE_HZ      (8)                // Algorithm data rate
 #define PRINTOUT_RATE_HZ            (1)                // Orientation printout rate
 #define SENSOR_SAMPLING_TICK        (1000000 / SYSTICK_US / SENSOR_SAMPLING_RATE_HZ)
-#define MAG_LAYOUT_PATTERN          PAT1   //magnetometer layout pattern
+#define MAG_LAYOUT_PATTERN          PAT2   //magnetometer layout pattern
 #define ACC_LAYOUT_PATTERN          PAT5   //accelerometer layout pattern
 
 /* global variables ---------------------------------------------------------*/

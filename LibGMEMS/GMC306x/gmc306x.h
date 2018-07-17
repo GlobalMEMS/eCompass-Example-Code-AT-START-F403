@@ -41,7 +41,7 @@
 #include "type_support.h"
 
 /* Uncomment below macro for GMC306A */
-//#define USE_GMC306A
+#define USE_GMC306A
 
 #define GMC306_7BIT_I2C_ADDR		0x0C
 #define GMC306_8BIT_I2C_ADDR		((GMC306_7BIT_I2C_ADDR)<<1)

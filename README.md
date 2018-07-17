@@ -8,6 +8,8 @@ Requirements
   - magentometer: GMC303, GMC306 or GMC306A
   - accelerometer: GMA302KU, GMA303KU, or GMA305KU
 
+The example code default assumes using **Sensor Fusion Arduino Daughter Board V1.0**, which contains GMA303KU and GMC306A.
+
 I2C Connections
 ---------------
 - Use I2C1
@@ -19,7 +21,7 @@ I2C Connections
 - Accelerometer
     - GMA30xKU I2C 7-bit slave address: 0x18
 
-Magentometer selection
+Magnetometer selection
 ----------------------
 * Default magnetometer is GMC306x. Uncoment the `USE_GMC303` macro in the **eCompassConfig.h** to select GMC303.
 ```
@@ -28,17 +30,17 @@ Magentometer selection
 //#define USE_GMC303
 ```
 
-* For GMC306x, default sensor is GMC306. For GMC306A, uncomment the `USE_GMC306A` macro in the **gmc306x.h** for correct configuration.
+* For GMC306x, default sensor is GMC306A. For GMC306, comment out the `USE_GMC306A` macro in the **gmc306x.h** for correct configuration.
 ```
 /* Uncomment below macro for GMC306A */
-//#define USE_GMC306A
+#define USE_GMC306A
 ```
 
 Sensor Layout Pattern
 ---------------------
-Sensor layout pattern is defined by the following macro in the "main.c"
+Sensor layout pattern is defined by the following macro in the "main.c". The default layout pattern definition is referred to the **Sensor Fusion Arduino Daughter Board V1.0**.
 ```
-#define MAG_LAYOUT_PATTERN          PAT1   //magnetometer layout pattern
+#define MAG_LAYOUT_PATTERN          PAT2   //magnetometer layout pattern
 #define ACC_LAYOUT_PATTERN          PAT5   //accelerometer layout pattern
 ```
 
