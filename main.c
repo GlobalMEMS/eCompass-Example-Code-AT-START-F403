@@ -43,80 +43,55 @@
 #else
 #include "gmc306x.h"
 #endif
+#include "Lcd_Driver.h"
+#include "GUI.h"
+#include "usart.h"
+#include "delay.h"
+#include "key.h"
+#include "string.h"
+#include "math.h"
 
 /* Private macro -------------------------------------------------------------*/
-#define SYSTICK_US                  (1000)             // system tick in us
+#define LED2_GPIO_PIN    GPIO_Pins_13
+#define LED3_GPIO_PIN    GPIO_Pins_14
+#define LED4_GPIO_PIN    GPIO_Pins_15
+#define LED_GPIO_PORT    GPIOD
 #define SENSOR_SAMPLING_RATE_HZ     (40)               // Sensor sampling rate
 #define ALGORITHM_DATA_RATE_HZ      (8)                // Algorithm data rate
-#define PRINTOUT_RATE_HZ            (1)                // Orientation printout rate
-#define SENSOR_SAMPLING_TICK        (1000000 / SYSTICK_US / SENSOR_SAMPLING_RATE_HZ)
-#define MAG_LAYOUT_PATTERN          PAT2   //magnetometer layout pattern
-#define ACC_LAYOUT_PATTERN          PAT5   //accelerometer layout pattern
+#define MAG_LAYOUT_PATTERN          PAT2               //magnetometer layout pattern
+#define ACC_LAYOUT_PATTERN          PAT5               //accelerometer layout pattern
+#define SMPLRT_TMR_TICK_FREQ_kHZ       5               // Sensor sampling timer tick@5kHz
 
 /* global variables ---------------------------------------------------------*/
-u8 ui8StartAutoNilFlag = 0;
+u8 ui8PeriodicMeasureFlag = 0;
 
 /* Private variables ---------------------------------------------------------*/
-USART_InitType USART_InitStructure;
-static __IO uint32_t TimingDelay, TimingPeriodicMeasure;
-static __IO uint8_t ui8PeriodicMeasureFlag;
 static AKMPRMS akmdfsPRMS;
 
 /* Private function prototypes -----------------------------------------------*/
-
 /* Private functions ---------------------------------------------------------*/
-/**
- * @brief  Inserts a delay time.
- * @param  nTime: specifies the delay time length, in milliseconds.
- * @retval None
- */
-void Delay(__IO uint32_t nTime)
-{
-  TimingDelay = nTime * 1000 / SYSTICK_US;
-
-  while(TimingDelay != 0);
-}
 
 /**
- * @brief  Decrements the TimingDelay variable.
+ * @brief  GPIO Initialize For LED.
  * @param  None
  * @retval None
  */
-void TimingDelay_Decrement(void)
+void LED_Init(void)
 {
-  if (TimingDelay != 0x00){
-    TimingDelay--;
-  }
-}
+  GPIO_InitType GPIO_InitStructure;
 
-/**
- * @brief  Decrements the TimingDelay variable.
- * @param  None
- * @retval None
- */
-void TimingPeriodicMeasure_Decrement(void)
-{
-  if (TimingPeriodicMeasure != 0x00){
-    TimingPeriodicMeasure--;
-  }
-  else{
-    ui8PeriodicMeasureFlag = 1;
-    TimingPeriodicMeasure = SENSOR_SAMPLING_TICK;
-  }
-}
+  RCC_APB2PeriphClockCmd(RCC_APB2PERIPH_GPIOD, ENABLE);
 
-/**
- * @brief  Retargets the C library printf function to the USART1.
- * @param
- * @retval
- */
-int fputc(int ch, FILE *f)
-{
-  while((USART1->STS & 0X40) == 0)
-    ;
+  /*PD13->LED2 PD14->LED3 PD15->LED4*/
+  GPIO_InitStructure.GPIO_Pins = LED2_GPIO_PIN | LED3_GPIO_PIN | LED4_GPIO_PIN;
+  GPIO_InitStructure.GPIO_MaxSpeed = GPIO_MaxSpeed_50MHz;
+  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_OUT_PP;
+  GPIO_Init(LED_GPIO_PORT, &GPIO_InitStructure);
 
-  USART1->DT = (u8)ch;
-  return ch;
+  GPIO_SetBits(LED_GPIO_PORT, LED2_GPIO_PIN);
+  GPIO_SetBits(LED_GPIO_PORT, LED3_GPIO_PIN);
+  GPIO_SetBits(LED_GPIO_PORT, LED4_GPIO_PIN);
+
 }
 
 /**
@@ -128,66 +103,35 @@ void NVIC_Configuration(void)
 {
   NVIC_InitType NVIC_InitStructure;
 
-  /* Enable the USARTx Interrupt */
-  NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;
+  /* Enable the TMR6 Interrupt */
+  NVIC_InitStructure.NVIC_IRQChannel = TMR6_GLOBAL_IRQn;
   NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
   NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
   NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
   NVIC_Init(&NVIC_InitStructure);
 }
 
-/**
- * @brief  Configures COM port.
- * @param  None
- * @retval None
- */
-void USART_COMInit()
-{
+void TMR6Init(){
 
-  GPIO_InitType GPIO_InitStructure;
+  RCC_ClockType RccClkSource;
+  TMR_TimerBaseInitType  TIM_TimeBaseStructure;
 
-  /* USARTx configured as follow:
-     - BaudRate = 115200 baud
-     - Word Length = 8 Bits
-     - One Stop Bit
-     - No parity check
-     - Hardware flow control disabled (RTS and CTS signals)
-     - Receive and transmit enabled
-  */
-  USART_InitStructure.USART_BaudRate = 115200;
-  USART_InitStructure.USART_WordLength = USART_WordLength_8b;
-  USART_InitStructure.USART_StopBits = USART_StopBits_1;
-  USART_InitStructure.USART_Parity = USART_Parity_No;
-  USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
-  USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
+  /* TMR6 clock enable */
+  RCC_APB1PeriphClockCmd(RCC_APB1PERIPH_TMR6, ENABLE);
 
+  /* Init the TMR6 configuration */
+  RCC_GetClocksFreq(&RccClkSource);
+  TIM_TimeBaseStructure.TMR_Period = 1000 * SMPLRT_TMR_TICK_FREQ_kHZ / SENSOR_SAMPLING_RATE_HZ - 1;
+  TIM_TimeBaseStructure.TMR_DIV = RccClkSource.AHBCLK_Freq / SMPLRT_TMR_TICK_FREQ_kHZ / 1000 - 1;
+  TIM_TimeBaseStructure.TMR_ClockDivision = 0;
+  TIM_TimeBaseStructure.TMR_CounterMode = TMR_CounterDIR_Down;
+  TMR_TimeBaseInit(TMR6, &TIM_TimeBaseStructure);
 
-  /* Enable GPIO clock */
-  RCC_APB2PeriphClockCmd(RCC_APB2PERIPH_GPIOA, ENABLE);
+  /* Enable TMR6 interrupt */
+  TMR_INTConfig(TMR6, TMR_INT_Overflow, ENABLE);
 
-  /* Enable UART clock */
-  RCC_APB2PeriphClockCmd(RCC_APB2PERIPH_USART1, ENABLE);
-
-  /* Configure USART Tx as alternate function push-pull */
-  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-  GPIO_InitStructure.GPIO_Pins = TX_PIN_NUMBER;
-  GPIO_InitStructure.GPIO_MaxSpeed = GPIO_MaxSpeed_50MHz;
-  GPIO_Init(TXRX_GPIOx, &GPIO_InitStructure);
-
-  /* Configure USART Rx as input floating */
-  GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
-  GPIO_InitStructure.GPIO_Pins = RX_PIN_NUMBER;
-  GPIO_Init(TXRX_GPIOx, &GPIO_InitStructure);
-
-  /* USART configuration */
-  USART_Init(USART1, &USART_InitStructure);
-
-  /* Enable USART */
-  USART_Cmd(USART1, ENABLE);
-
-  /* Enable the EVAL_COM1 Receive interrupt: this interrupt is generated when the
-     EVAL_COM1 receive data register is not empty */
-  USART_INTConfig(USART1, USART_INT_RDNE, ENABLE);
+  /* TMR6 Enable */
+  TMR_Cmd(TMR6, ENABLE);
 }
 
 #ifdef  USE_FULL_ASSERT
@@ -211,6 +155,61 @@ void assert_failed(uint8_t* file, uint32_t line)
 
 #endif
 
+const u16 RESOLUTION_X = 128;
+const u16 RESOLUTION_Y = 120;
+const u16 FONT_HEIGHT = 16;
+const u16 LINE_HEIGHT = FONT_HEIGHT + 2;
+const u16 MAX_DISPLAY_ITEM = 9;
+void showMsg(u16 x, u16 line, u8* str, u16 color, u8 reDraw){
+
+  int i;
+  char* subStr;
+
+  if(reDraw) Lcd_Clear(GRAY0);
+
+  subStr = strtok((char*)str, "\n");
+
+  for(i = line; subStr; ++i){
+    Gui_DrawFont_GBK16(x, LINE_HEIGHT * i, color, GRAY0, (u8*)subStr);
+    subStr = strtok(NULL, "\n");
+  }
+}
+
+void floatCatToStr(float fIn, u8 precision, u8* outStr){
+
+  s32 i = 0;
+  float fTmp;
+  s32 s32Dec, s32Dig;
+
+  if(fIn < 0){
+    fIn = -fIn;
+    strcat((char*)outStr, "-");
+  }
+
+  s32Dec = (s32)fIn;
+  fTmp = fIn - s32Dec;
+  for(i = 0; i < precision; ++i)
+    fTmp *= 10;
+  s32Dig = (s32)(fTmp + 0.5f);
+
+  itoa(s32Dec, &outStr[strlen((const char*)outStr)]);
+  strcat((char*)outStr, ".");
+
+  fTmp = 1;
+  for(i = 0; i < precision; ++i)
+    fTmp *= 10;
+  for(i = 0; i < precision; ++i){
+    fTmp /= 10;
+    if(s32Dig < fTmp){
+      strcat((char*)outStr, "0");
+    }
+    else{
+      itoa(s32Dig, &outStr[strlen((const char*)outStr)]);
+      break;
+    }
+  }
+}
+
 /**
  * @brief   Main program
  * @param  None
@@ -218,33 +217,38 @@ void assert_failed(uint8_t* file, uint32_t line)
  */
 int main(void)
 {
-  RCC_ClockType RccClkSource;
   bus_support_t gma30xku_bus, gmc30x_bus;
   raw_data_xyzt_t gRawData, mRawData;
   float_xyzt_t gOffsetData;
   s16 i16Accuracy, i16Accuracy_pre, i16Orientation, i16RawData[3];
-  s32 i, algIcounter, printIcounter = 0;
+  s32 i, algIcounter;
   u8 u8Asaxyz[3]; //ASAX/Y/Z
   float_xyzt_t fv_avec;
   float_xyzt_t fv_hvec;
   AKFVEC fv_ho_pre = {0.0f, 0.0f, 0.0f};
   AKFLOAT f_azimuth, f_pitch, f_roll;
   const s32 ALG_OSR = (s32)(((float)SENSOR_SAMPLING_RATE_HZ) / ((float)ALGORITHM_DATA_RATE_HZ) + 0.5f);
-  const s32 PRINT_OSR = (s32)(((float)ALGORITHM_DATA_RATE_HZ) / ((float)PRINTOUT_RATE_HZ) + 0.5f);
+  u8 str[64];
+
   /* NVIC configuration */
   NVIC_Configuration();
 
-  /* USART COM configuration */
-  USART_COMInit();
+  /* User LED initialization */
+  LED_Init();
 
   /* I2C1 initialization */
   I2C1_Init();
 
-  RCC_GetClocksFreq(&RccClkSource);
-  if (SysTick_Config(RccClkSource.AHBCLK_Freq / (1000000 / SYSTICK_US))){
-    /* Capture error */
-    while(1);
-  }
+  /* TMR6 initialization */
+  TMR6Init();
+
+  /* Init Key */
+  KEY_Init();
+
+  /* Initialize the LCD */
+  uart_init(19200);
+  delay_init();
+  Lcd_Init();
 
   /* GMA30xKU I2C bus setup */
   bus_init_I2C1(&gma30xku_bus, GMA30xKU_8BIT_I2C_ADDR);  //Initialize bus support to I2C1
@@ -271,7 +275,7 @@ int main(void)
 #endif
 
   /* Wait 10ms for reset complete */
-  Delay(10);
+  delay_ms(10);
 
   /* GMA30xKU initialization */
   gma30xku_initialization();
@@ -282,7 +286,30 @@ int main(void)
 #else
   gmc306_burst_read(GMC306_ASA_XYZ_START__REG, u8Asaxyz, 3);
 #endif
-  printf("ASAX/Y/Z=0x%02X, 0x%02X, 0x%02X\n", u8Asaxyz[0], u8Asaxyz[1], u8Asaxyz[2]);
+
+  /* User message: show sensitivity adjustment value */
+#ifdef USE_GMC303
+  strcpy((char*)str, "GMC303\n");
+#else
+#ifdef USE_GMC306A
+  strcpy((char*)str, "GMC306A\n");
+#else
+  strcpy((char*)str, "GMC306\n");
+#endif
+#endif
+  strcat((char*)str, "ASAX= ");
+  itoa(u8Asaxyz[0], &str[strlen((const char*)str)]);
+  strcat((char*)str, "\nASAY= ");
+  itoa(u8Asaxyz[1], &str[strlen((const char*)str)]);
+  strcat((char*)str, "\nASAZ= ");
+  itoa(u8Asaxyz[2], &str[strlen((const char*)str)]);
+  showMsg(0, 0, str, BLACK, 1);
+  strcpy((char*)str, "Press Key1 to\ncontinue");
+  showMsg(0, 5, str, RED, 0);
+
+  do{
+    delay_ms(10);
+  }while(KEY_Scan() != KEY1_PRES);
 
   //Set to CM 50Hz
 #ifdef USE_GMC303
@@ -291,17 +318,33 @@ int main(void)
   gmc306_set_operation_mode(GMC306_OP_MODE_CM_50HZ);
 #endif
 
-  /* GMA30xKU Offset AutoNil */
-  printf("Place and hold g-sensor in level for offset AutoNil.\r");
-  printf("Press y when ready.\n");
+  /* User message: press Key1 to start offset AutoNil */
+  strcpy((char*)str, "Hold g-sensor in\nlevel for offset\nAutoNil.");
+  showMsg(0, 0, str, BLACK, 1);
+  strcpy((char*)str, "Press Key1 when\nready.");
+  showMsg(0, 4, str, RED, 0);
 
   do{
-    Delay(10);
-  }while(ui8StartAutoNilFlag == 0);
+    delay_ms(10);
+  }while(KEY_Scan() != KEY1_PRES);
 
   //Conduct g-sensor AutoNil, gravity is along the positive Z-axis
   gSensorAutoNil_f(gma30xku_read_data_xyz, AUTONIL_POSITIVE + AUTONIL_Z, GMA30xKU_RAW_DATA_SENSITIVITY, &gOffsetData);
-  printf("gOffset_XYZ=%.1f, %.1f, %.1f\n", gOffsetData.u.x, gOffsetData.u.y, gOffsetData.u.z);
+
+  /* User message: show offset */
+  strcpy((char*)str, "Offset(code):\nX= ");
+  itoa(gOffsetData.u.x, &str[strlen((const char*)str)]);
+  strcat((char*)str, "\nY= ");
+  itoa(gOffsetData.u.y, &str[strlen((const char*)str)]);
+  strcat((char*)str, "\nZ= ");
+  itoa(gOffsetData.u.z, &str[strlen((const char*)str)]);
+  showMsg(0, 0, str, BLACK, 1);
+  strcpy((char*)str, "Press Key1 to\ncontinue");
+  showMsg(0, 5, str, RED, 0);
+
+  do{
+    delay_ms(10);
+  }while(KEY_Scan() != KEY1_PRES);
 
   //Initialization akmdfs algorithm
   AKFS_Init(&akmdfsPRMS,
@@ -319,8 +362,28 @@ int main(void)
   //Start akmdfs algorithm
   AKFS_Start(&akmdfsPRMS);
 
-  printf("Data rate: %dHz, Alg rate: %dHz, OSR: %d, %d\n",
-	 SENSOR_SAMPLING_RATE_HZ, ALGORITHM_DATA_RATE_HZ, ALG_OSR, PRINT_OSR);
+  strcpy((char*)str, "Data,Alg=");
+  itoa(SENSOR_SAMPLING_RATE_HZ, &str[strlen((const char*)str)]);
+  strcat((char*)str, ",");
+  itoa(ALGORITHM_DATA_RATE_HZ, &str[strlen((const char*)str)]);
+  strcat((char*)str, "Hz");
+  showMsg(0, 0, str, BLACK, 1);
+  strcpy((char*)str, "yaw  =");
+  showMsg(0, 1, str, GRAY1, 0);
+  strcpy((char*)str, "picth=");
+  showMsg(0, 2, str, GRAY1, 0);
+  strcpy((char*)str, "roll =");
+  showMsg(0, 3, str, GRAY1, 0);
+  strcpy((char*)str, "Mag offset(uT):");
+  showMsg(0, 4, str, BLACK, 0);
+  strcpy((char*)str, "accuracy:");
+  showMsg(0, 5, str, GRAY1, 0);
+  strcpy((char*)str, "X=");
+  showMsg(0, 6, str, GRAY1, 0);
+  strcpy((char*)str, "Y=");
+  showMsg(0, 7, str, GRAY1, 0);
+  strcpy((char*)str, "Z=");
+  showMsg(0, 8, str, GRAY1, 0);
 
   while (1){
 
@@ -365,17 +428,30 @@ int main(void)
 	 fv_ho_pre.u.z != akmdfsPRMS.fv_ho.u.z ||
 	 i16Accuracy != i16Accuracy_pre){
 
-	//print magnetometer offset
-	printf("ho(uT)@%d=%.2f, %.2f, %.2f(%.2fr)\n",
-	       i16Accuracy,
-	       akmdfsPRMS.fv_ho.u.x, akmdfsPRMS.fv_ho.u.y, akmdfsPRMS.fv_ho.u.z,
-	       akmdfsPRMS.s_aocv.hraoc);
+	/* User message: m-sensor offset */
+	strcpy((char*)str, "");
+	itoa(i16Accuracy, &str[strlen((const char*)str)]);
+	showMsg(80, 5, str, BLUE, 0);
+	strcpy((char*)str, "");
+	floatCatToStr(akmdfsPRMS.fv_ho.u.x, 2, str);
+	strcat((char*)str, "       ");
+	showMsg(30, 6, str, BLUE, 0);
+	strcpy((char*)str, "");
+	floatCatToStr(akmdfsPRMS.fv_ho.u.y, 2, str);
+	strcat((char*)str, "       ");
+	showMsg(30, 7, str, BLUE, 0);
+	strcpy((char*)str, "");
+	floatCatToStr(akmdfsPRMS.fv_ho.u.z, 2, str);
+	strcat((char*)str, "       ");
+	showMsg(30, 8, str, BLUE, 0);
       }
 
       for(i = 0; i < 3; ++i)
 	fv_ho_pre.v[i] = akmdfsPRMS.fv_ho.v[i];
 
       i16Accuracy_pre = i16Accuracy;
+
+      LED_GPIO_PORT->OPTDT ^= LED4_GPIO_PIN;
 
       if(i16Accuracy == 0) continue;
 
@@ -386,11 +462,19 @@ int main(void)
 			   &f_roll,
 			   &i16Orientation);
 
-      if(++printIcounter < PRINT_OSR) continue;
-      printIcounter = 0; //reset the counter
-
-      //print orientation
-      printf("y,p,r=%.2f, %.2f, %.2f\n", f_azimuth, f_pitch, f_roll);
+      /* User message: orientation in degree*/
+      strcpy((char*)str, "");
+      floatCatToStr(f_azimuth, 1, str);
+      strcat((char*)str, "       ");
+      showMsg(60, 1, str, BLUE, 0);
+      strcpy((char*)str, "");
+      floatCatToStr(f_pitch, 1, str);
+      strcat((char*)str, "       ");
+      showMsg(60, 2, str, BLUE, 0);
+      strcpy((char*)str, "");
+      floatCatToStr(f_roll, 1, str);
+      strcat((char*)str, "       ");
+      showMsg(60, 3, str, BLUE, 0);
     }
   }
 }

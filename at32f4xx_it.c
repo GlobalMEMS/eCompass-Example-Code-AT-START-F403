@@ -39,16 +39,11 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
-#define USARTx_IRQHandler   USART1_IRQHandler
-
 /* global variables ---------------------------------------------------------*/
-extern u8 ui8StartAutoNilFlag;
+extern u8 ui8PeriodicMeasureFlag;
 
 /* Private variables ---------------------------------------------------------*/
 /* Private function prototypes -----------------------------------------------*/
-void TimingPeriodicMeasure_Decrement(void);
-void TimingDelay_Decrement(void);
-
 /* Private functions ---------------------------------------------------------*/
 
 /**
@@ -135,40 +130,9 @@ void PendSV_Handler(void)
 {
 }
 
-/**
- * @brief  This function handles SysTick Handler.
- * @param  None
- * @retval None
- */
-void SysTick_Handler(void)
-{
-  TimingPeriodicMeasure_Decrement();
-  TimingDelay_Decrement();
-}
-
 /******************************************************************************/
 /*            AT32F4xx Peripherals Interrupt Handlers                        */
 /******************************************************************************/
-
-/**
- * @brief  This function handles USARTx global interrupt request.
- * @param  None
- * @retval None
- */
-void USARTx_IRQHandler(void)
-{
-  uint8_t RxBuffer;
-
-  while(USART_GetITStatus(USART1, USART_INT_RDNE) != RESET){
-    /* Read one byte from the receive data register */
-    RxBuffer = (USART_ReceiveData(USART1));
-
-    printf("%c", RxBuffer);
-    if(RxBuffer == 'y' || RxBuffer == 'Y'){
-      ui8StartAutoNilFlag = 1;
-    }
-  }
-}
 
 /******************************************************************************/
 /*                 at32f4xx Peripherals Interrupt Handlers                   */
@@ -198,4 +162,13 @@ void I2C1_EV_IRQHandler(void)
 void I2C1_ER_IRQHandler(void)
 {
   i2c1_err_handle();
+}
+
+void TMR6_GLOBAL_IRQHandler(void)
+{
+  if(TMR_GetINTStatus(TMR6,TMR_INT_Overflow) == 1)
+    {
+      ui8PeriodicMeasureFlag = 1;
+      TMR_ClearITPendingBit(TMR6, TMR_INT_Overflow);
+    }
 }

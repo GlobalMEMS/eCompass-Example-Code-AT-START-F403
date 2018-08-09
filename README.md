@@ -44,11 +44,11 @@ Sensor layout pattern is defined by the following macro in the "main.c". The def
 #define ACC_LAYOUT_PATTERN          PAT5   //accelerometer layout pattern
 ```
 
-Please refer to the "Sensor_Layout_Pattern_Definition.pdf" document for the definition and modify accordingly to fit your actual layout.
+Please refer to the ["Sensor_Layout_Pattern_Definition.pdf"](https://github.com/GlobalMEMS/eCompass-Example-Code-AT-START-F403/blob/master/Sensor_Layout_Pattern_Definition.pdf) document for the definition and modify accordingly to fit your actual layout.
 
 Usage of AutoNil
 ----------------
- * The program will do an offset AutoNil when executed. Hold the g-sensor steady and maintain in level facing up, then press 'y' after the program prompt for input.
+ * The program will do an g-sensor offset AutoNil when executed. Hold the board steady and maintain in level facing up, then press **Key1** after the program prompt for input.
  * You may change the `DATA_AVE_NUM` macro in the gSensor_autoNil.h for the moving averae order for the offset estimation. Defautl is 32.
 
 Debug print
